@@ -52,14 +52,20 @@ check_yeswehack(tmp_dir, discord_webhook, first_time, db, platforms['yeswehack']
 
 # liveness: quiet notice when nothing changed, plus a 6-hour heartbeat
 total_programs = sum(db[name].count_documents({}) for name in platforms)
+meta = db['_meta']
+now = datetime.datetime.utcnow()
+
 if not first_time and discord_notifier.notifications_sent == 0:
-    discord_notifier.send_quiet_message(discord_webhook, total_programs)
+    last_quiet = meta.find_one({'programKey': 'last_quiet'})
+    quiet_gap = (now - last_quiet['at']).total_seconds() if last_quiet else 1e9
+    if quiet_gap >= 25 * 60:  # extra schedule slots must not spam quiet msgs
+        discord_notifier.send_quiet_message(discord_webhook, total_programs)
+        meta.update_one({'programKey': 'last_quiet'},
+                        {'$set': {'at': now}}, upsert=True)
 
 heartbeat_cfg = cfg.get('heartbeat') or {}
 if heartbeat_cfg.get('enabled', True):
     every_hours = float(heartbeat_cfg.get('every_hours', 6))
-    meta = db['_meta']
-    now = datetime.datetime.utcnow()
     last = meta.find_one({'programKey': 'last_heartbeat'})
     due = last is None or (now - last['at']).total_seconds() >= every_hours * 3600
     if due:
