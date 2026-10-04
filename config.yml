@@ -1,0 +1,74 @@
+discordWebhook:
+  programs_watcher: <discord-webhook>
+discord:
+  enabled: false
+telegram:
+  # optional second notification channel; "<...>" placeholder = disabled
+  bot_token: <TELEGRAM-BOT-TOKEN>
+  chat_id: <TELEGRAM-CHAT-ID>
+mongoDB:
+  uri: mongodb://db:27017/
+  database: programs_watcher
+platforms:
+  - name: bugcrowd
+    url: https://raw.githubusercontent.com/Osb0rn3/bugbounty-targets/main/programs/bugcrowd.json
+    monitor:
+      rdp: true
+      vdp: true
+      specific_programs: []
+      excluded_programs: []
+    notifications:
+      new_program: true
+      removed_program: true
+      new_inscope: true
+      removed_inscope: true
+      new_out_of_scope: true
+      removed_out_of_scope: true
+      new_type: true
+      new_bounty_table: true
+  - name: hackerone
+    url: https://raw.githubusercontent.com/Osb0rn3/bugbounty-targets/main/programs/hackerone.json
+    monitor:
+      rdp: true
+      vdp: true
+      specific_programs: []
+      excluded_programs: 
+        - https://hackerone.com/alshaya?type=team
+        - https://hackerone.com/gsa_vdp?type=team
+        - https://hackerone.com/clarivate?type=team
+    notifications:
+      new_program: true
+      removed_program: true
+      new_scope: true
+      removed_scope: true
+      changed_scope: true
+      new_type: true
+  - name: intigriti
+    url: https://raw.githubusercontent.com/Osb0rn3/bugbounty-targets/main/programs/intigriti.json
+    monitor:
+      rdp: true
+      vdp: true
+      specific_programs: []
+      excluded_programs: [] 
+    notifications:
+      new_program: true
+      removed_program: true
+      new_scope: true
+      removed_scope: true
+      changed_scope: true
+      new_type: true
+      new_bounty_table: true
+  - name: yeswehack
+    url: https://raw.githubusercontent.com/Osb0rn3/bugbounty-targets/main/programs/yeswehack.json
+    monitor:
+      rdp: true
+      vdp: true
+      specific_programs: []
+      excluded_programs: []
+    notifications:
+      new_program: true
+      removed_program: true
+      new_inscope: true
+      removed_inscope: true
+      new_type: true
+      new_bounty_table: true

@@ -1,0 +1,16 @@
+version: "3"
+
+services:
+  app:
+    build: .
+    restart: always
+    volumes:
+      - ./config.yml:/app/config.yml
+  db:
+    image: mongo:4.0-xenial
+    restart: always
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:

@@ -1,0 +1,28 @@
+# Daily Top-10 targets report per platform (Discord + Telegram).
+# Ranking: bounty value + scope size + program type (response speed and
+# report counts are not public on any platform).
+name: daily-top10
+on:
+  schedule:
+    # 07:23 UTC = 10:23 Cairo — off-peak minute so GitHub doesn't drop it
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+jobs:
+  top10:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Inject secrets into config.yml
+        run: python .github/inject_secrets.py
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - run: python top_targets.py

@@ -1,0 +1,30 @@
+# Runs the ORIGINAL programs-watcher code in the cloud, 24/7, free.
+# State lives in MongoDB Atlas (M0 free tier) — nothing is committed here.
+# Secrets needed (repo Settings > Secrets and variables > Actions):
+#   DISCORD_WEBHOOK  – your Discord webhook URL
+#   MONGO_URI        – your Atlas connection string (mongodb+srv://...)
+name: programs-watcher
+on:
+  schedule:
+    # off-peak minutes: GitHub drops scheduled runs at :00/:30 congestion
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Inject secrets into config.yml
+        run: python .github/inject_secrets.py
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - run: python main.py
