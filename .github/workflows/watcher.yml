@@ -1,23 +1,20 @@
-# Runs the ORIGINAL programs-watcher code in the cloud, 24/7, free.
-# State lives in MongoDB Atlas (M0 free tier) — nothing is committed here.
-# Secrets needed (repo Settings > Secrets and variables > Actions):
-#   DISCORD_WEBHOOK  – your Discord webhook URL
-#   MONGO_URI        – your Atlas connection string (mongodb+srv://...)
+# Self-retriggering watcher. GitHub's cron scheduler drops scheduled runs
+# unpredictably, so instead of relying on it, ONE job runs ~21 checks in a
+# loop (~15 min apart, ~5.5h) and then dispatches the next job itself via
+# the API — bypassing the scheduler entirely. The twice-daily cron is only
+# a bootstrap safety-net (chain_guard prevents duplicate chains).
 name: programs-watcher
 on:
   schedule:
-    # 8 slots/hour (~every 8 min): GitHub drops some scheduled runs under
-    # load, so redundancy keeps the effective detection latency <= ~15 min.
-    # Public repo = unlimited free minutes.
-    - cron: "3,11,19,27,35,43,51,59 * * * *"
+    - cron: "13 1,13 * * *"   # bootstrap safety-net only
   workflow_dispatch:
-concurrency:
-  group: watcher
-  cancel-in-progress: true
+permissions:
+  actions: write
+  contents: read
 jobs:
   watch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,4 +29,21 @@ jobs:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      - run: python main.py
+      - name: Chain guard (skip if a chain is already alive)
+        id: guard
+        run: python .github/chain_guard.py guard
+        continue-on-error: true
+      - name: Watch loop (~21 checks, ~15 min apart)
+        if: steps.guard.outcome == 'success'
+        run: |
+          for i in $(seq 1 21); do
+            echo "=== check $i/21 ==="
+            python main.py || echo "check failed (will retry next cycle)"
+            python .github/chain_guard.py touch
+            [ "$i" -lt 21 ] && sleep 860
+          done
+      - name: Re-arm next chain
+        if: always() && steps.guard.outcome == 'success'
+        run: gh workflow run watcher.yml -R "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
