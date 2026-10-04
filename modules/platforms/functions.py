@@ -1,9 +1,15 @@
 import requests
 from hashlib import md5
+import time
 
 
 def get_resource(tmp_dir, url, platformName):
-    domainList = requests.get(url, allow_redirects=True)
+    # cache-buster: raw.githubusercontent CDN edges can serve stale files to
+    # datacenter IPs for hours, which silently hides new programs
+    fresh_url = url + ("&" if "?" in url else "?") + f"cb={int(time.time())}"
+    domainList = requests.get(fresh_url, allow_redirects=True, timeout=60)
+    print(f"[{platformName}] fetched feed: HTTP {domainList.status_code}, "
+          f"{len(domainList.content)} bytes")
     open(F"{tmp_dir}{platformName}.json", 'wb').write(domainList.content)
 
 
