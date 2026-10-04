@@ -33,14 +33,14 @@ jobs:
         id: guard
         run: python .github/chain_guard.py guard
         continue-on-error: true
-      - name: Watch loop (~21 checks, ~15 min apart)
+      - name: Watch loop (~20 checks, ~15 min apart)
         if: steps.guard.outcome == 'success'
         run: |
-          for i in $(seq 1 21); do
-            echo "=== check $i/21 ==="
+          for i in $(seq 1 20); do
+            echo "=== check $i/20 ==="
             python main.py || echo "check failed (will retry next cycle)"
             python .github/chain_guard.py touch
-            [ "$i" -lt 21 ] && sleep 860
+            if [ "$i" -lt 20 ]; then sleep 860; fi
           done
       - name: Re-arm next chain
         if: always() && steps.guard.outcome == 'success'

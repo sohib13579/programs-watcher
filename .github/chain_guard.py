@@ -8,6 +8,7 @@ State lives in Mongo `_meta` so it survives across runners.
 Usage: python chain_guard.py guard|touch
 """
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 import yaml
@@ -33,15 +34,20 @@ def main():
                         {"$set": {"at": now}}, upsert=True)
         return
     if mode == "guard":
-        last = meta.find_one({"programKey": "chain_last_check"})
-        alive = last and (now - last["at"]) < timedelta(
-            minutes=MAX_CHAIN_SILENCE_MIN)
-        if alive:
-            print("chain already alive (last check %s) — not starting another"
-                  % last["at"])
-            sys.exit(9)
-        print("no live chain — starting")
-        return
+        # wait up to ~18 min for a dead owner's stamp to go stale; a live
+        # owner checks every ~15 min so its stamp never goes stale
+        for attempt in range(18):
+            last = meta.find_one({"programKey": "chain_last_check"})
+            if not last or (now - last["at"]) >= timedelta(
+                    minutes=MAX_CHAIN_SILENCE_MIN):
+                print("no live chain — starting (waited %d min)" % attempt)
+                return
+            print(f"chain looks alive ({last['at']}) — waiting... "
+                  f"({attempt + 1}/18)")
+            time.sleep(60)
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+        print("owner still alive after 18 min — it will re-arm itself")
+        sys.exit(9)
     raise SystemExit(f"unknown mode {mode}")
 
 
