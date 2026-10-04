@@ -58,7 +58,7 @@ now = datetime.datetime.utcnow()
 if not first_time and discord_notifier.notifications_sent == 0:
     last_quiet = meta.find_one({'programKey': 'last_quiet'})
     quiet_gap = (now - last_quiet['at']).total_seconds() if last_quiet else 1e9
-    if quiet_gap >= 25 * 60:  # extra schedule slots must not spam quiet msgs
+    if quiet_gap >= 14 * 60:  # extra schedule slots must not spam quiet msgs
         discord_notifier.send_quiet_message(discord_webhook, total_programs)
         meta.update_one({'programKey': 'last_quiet'},
                         {'$set': {'at': now}}, upsert=True)

@@ -6,10 +6,10 @@
 name: programs-watcher
 on:
   schedule:
-    # 6 slots/hour: GitHub Actions drops scheduled runs under load, so any
-    # ONE firing per 30-min window is enough (diff-based = no dup alerts,
-    # quiet messages rate-limited to 1/25min in main.py)
-    - cron: "9,17,25,39,47,55 * * * *"
+    # 8 slots/hour (~every 8 min): GitHub drops some scheduled runs under
+    # load, so redundancy keeps the effective detection latency <= ~15 min.
+    # Public repo = unlimited free minutes.
+    - cron: "3,11,19,27,35,43,51,59 * * * *"
   workflow_dispatch:
 concurrency:
   group: watcher
