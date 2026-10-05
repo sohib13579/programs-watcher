@@ -39,6 +39,7 @@ jobs:
           for i in $(seq 1 20); do
             echo "=== check $i/20 ==="
             python main.py || echo "check failed (will retry next cycle)"
+            python .github/maybe_top10.py || echo "top10 skipped/failed (retry next cycle)"
             python .github/chain_guard.py touch
             if [ "$i" -lt 20 ]; then sleep 860; fi
           done

@@ -1,7 +1,7 @@
 """Chain guard for the self-retriggering watcher.
 
-guard: exit 9 if a watcher chain checked in recently (a live chain exists);
-       exit 0 otherwise (caller should start a new chain).
+guard: exit 0 to start/keep a chain; exit 9 to stand down (a live chain
+       owns the watch). Takes over when the owner's stamp goes stale.
 touch: record that a chain check just happened.
 
 State lives in Mongo `_meta` so it survives across runners.
@@ -15,6 +15,8 @@ import yaml
 from pymongo import MongoClient
 
 MAX_CHAIN_SILENCE_MIN = 20  # a live chain checks every ~15 min
+TAKEOVER_AT_MIN = 23        # must exceed MAX + guard startup lag
+MAX_WAIT_MIN = 30
 
 
 def _meta():
@@ -34,19 +36,24 @@ def main():
                         {"$set": {"at": now}}, upsert=True)
         return
     if mode == "guard":
-        # wait up to ~18 min for a dead owner's stamp to go stale; a live
-        # owner checks every ~15 min so its stamp never goes stale
-        for attempt in range(18):
+        first = meta.find_one({"programKey": "chain_last_check"})
+        first_at = first["at"] if first else None
+        deadline = now + timedelta(minutes=MAX_WAIT_MIN)
+        while now < deadline:
             last = meta.find_one({"programKey": "chain_last_check"})
-            if not last or (now - last["at"]) >= timedelta(
-                    minutes=MAX_CHAIN_SILENCE_MIN):
-                print("no live chain — starting (waited %d min)" % attempt)
+            at = last["at"] if last else None
+            if at != first_at:
+                # owner touched the stamp AFTER we started waiting: alive,
+                # and it (or its re-arm) owns the chain — stand down
+                print("owner touched stamp while we waited — alive, standing down")
+                sys.exit(9)
+            if at is None or (now - at) >= timedelta(minutes=TAKEOVER_AT_MIN):
+                print("no live chain (stamp %s) — taking over" % at)
                 return
-            print(f"chain looks alive ({last['at']}) — waiting... "
-                  f"({attempt + 1}/18)")
+            print(f"stamp unchanged ({at}) — waiting... now={now:%H:%M}")
             time.sleep(60)
             now = datetime.now(timezone.utc).replace(tzinfo=None)
-        print("owner still alive after 18 min — it will re-arm itself")
+        print("waited out the window with a fresh stamp — owner alive")
         sys.exit(9)
     raise SystemExit(f"unknown mode {mode}")
 

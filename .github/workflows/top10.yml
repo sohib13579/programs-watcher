@@ -1,11 +1,8 @@
-# Daily Top-10 targets report per platform (Discord + Telegram).
-# Ranking: bounty value + scope size + program type (response speed and
-# report counts are not public on any platform).
+# Daily Top-10 report. The report itself is fired from INSIDE the watch
+# chain (.github/maybe_top10.py) after 07:00 UTC once per day — no cron
+# dependence. This workflow is kept for MANUAL runs only.
 name: daily-top10
 on:
-  schedule:
-    # 07:23 UTC = 10:23 Cairo — off-peak minute so GitHub doesn't drop it
-    - cron: "23 7 * * *"
   workflow_dispatch:
 jobs:
   top10:
