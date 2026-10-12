@@ -53,6 +53,8 @@ def build_message_text(data):
                  f"({_esc(data.get('programType') or 'unknown type')})")
     if data.get("programURL"):
         lines.append(f"<a href=\"{_esc(data['programURL'])}\">Open program page</a>")
+    if data.get("note"):
+        lines.append(f"ℹ️ {_esc(data['note'])}")
 
     if not data["isRemoved"]:
         new_type = data.get("newProgramType") or data.get("newType")
@@ -165,3 +167,9 @@ def send_startup():
         "━━━━━━━━━━━━━━━━━━━━\n"
         "⚡ <i>Stay sharp — new targets wait for no one.</i>",
         token, chat_id)
+
+
+def send_info(html_text):
+    """Free-form one-off notice (reseeds, feed errors). Caller escapes HTML."""
+    token, chat_id = load_telegram_config()
+    _post(html_text, token, chat_id)
