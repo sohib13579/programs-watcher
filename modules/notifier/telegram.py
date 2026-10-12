@@ -36,60 +36,100 @@ def _esc(text):
 
 def _bounty_line(reward):
     if reward and reward.get("min") and reward.get("max"):
-        return f"Bounty: {_esc(reward['min'])} -- {_esc(reward['max'])}\n"
+        return (f"💰 <b>Bounty</b>: {_esc(reward['min'])} – "
+                f"{_esc(reward['max'])}")
     return ""
 
 
+PLATFORM_ICONS = {
+    "Bugcrowd": "🟢",
+    "HackerOne": "⚫",
+    "Intigriti": "🟣",
+    "YesWeHack": "🟠",
+}
+MAX_SCOPE_ITEMS = 12
+
+
+def _scope_list(items):
+    shown = items[:MAX_SCOPE_ITEMS]
+    lines = [f"• {_esc(i)}" for i in shown]
+    if len(items) > MAX_SCOPE_ITEMS:
+        lines.append(f"… and {len(items) - MAX_SCOPE_ITEMS} more")
+    return lines
+
+
+def _date_line(data):
+    # the platform's own update date wins; otherwise when we detected it
+    when = data.get("updated_at") or ""
+    if when:
+        return f"🕒 <b>Updated:</b> {_esc(when)}"
+    return f"🕒 <b>Detected:</b> {_esc(data.get('detected_at') or '')}"
+
+
 def build_message_text(data):
-    lines = []
+    icon = PLATFORM_ICONS.get(data.get("platformName"), "📡")
+    platform = _esc(data["platformName"])
+
     if data["isRemoved"]:
-        lines.append(f"🗑 <b>Program removed from {_esc(data['platformName'])}</b>")
+        lines = [f"{icon} {platform} · 🗑 <b>PROGRAM REMOVED</b>"]
     elif data["isNewProgram"]:
-        lines.append(f"🆕 <b>New program on {_esc(data['platformName'])}</b>")
+        lines = [f"{icon} {platform} · 🆕 <b>NEW PROGRAM</b>"]
     else:
-        lines.append(f"♻️ <b>Program changed on {_esc(data['platformName'])}</b>")
+        lines = [f"{icon} {platform} · ♻️ <b>PROGRAM CHANGED</b>"]
     lines.append("")
-    lines.append(f"<b>{_esc(data['programName'])}</b> "
-                 f"({_esc(data.get('programType') or 'unknown type')})")
+    lines.append(f"📌 <b>{_esc(data['programName'])}</b> "
+                 f"<i>({data.get('programType') or 'unknown type'})</i>")
+    lines.append(_date_line(data))
     if data.get("programURL"):
-        lines.append(f"<a href=\"{_esc(data['programURL'])}\">Open program page</a>")
-    if data.get("note"):
-        lines.append(f"ℹ️ {_esc(data['note'])}")
+        lines.append(f"🔗 <a href=\"{_esc(data['programURL'])}\">Open program page</a>")
 
     if not data["isRemoved"]:
         new_type = data.get("newProgramType") or data.get("newType")
         if new_type and not data["isNewProgram"]:
-            lines.append(f"Program type changed to: <b>{_esc(new_type)}</b>")
+            lines.append("")
+            lines.append(f"🔄 <b>Type changed:</b> {_esc(new_type)}")
         reward = data.get("newReward") or data.get("reward")
         bounty = _bounty_line(reward)
         if bounty:
+            lines.append("")
             lines.append(bounty.rstrip())
         if data.get("newScope"):
-            lines.append("\n<b>In scope added:</b>")
-            lines.append(f"<code>{_esc(chr(10).join(data['newScope']))}</code>")
+            lines.append("")
+            lines.append(f"➕ <b>Scope added</b> ({len(data['newScope'])})")
+            lines.extend(_scope_list(data["newScope"]))
         if data.get("newInScope"):
-            lines.append("\n<b>In scope added:</b>")
-            lines.append(f"<code>{_esc(chr(10).join(data['newInScope']))}</code>")
+            lines.append("")
+            lines.append(f"➕ <b>In scope added</b> ({len(data['newInScope'])})")
+            lines.extend(_scope_list(data["newInScope"]))
         if data.get("removedScope"):
-            lines.append("\n<b>Scope removed:</b>")
-            lines.append(f"<code>{_esc(chr(10).join(data['removedScope']))}</code>")
+            lines.append("")
+            lines.append(f"➖ <b>Scope removed</b> ({len(data['removedScope'])})")
+            lines.extend(_scope_list(data["removedScope"]))
         if data.get("removeInScope"):
-            lines.append("\n<b>In scope removed:</b>")
-            lines.append(f"<code>{_esc(chr(10).join(data['removeInScope']))}</code>")
+            lines.append("")
+            lines.append(f"➖ <b>In scope removed</b> ({len(data['removeInScope'])})")
+            lines.extend(_scope_list(data["removeInScope"]))
         if data.get("newOutOfScope"):
-            lines.append("\n<b>Out of scope added:</b>")
-            lines.append(f"<code>{_esc(chr(10).join(data['newOutOfScope']))}</code>")
+            lines.append("")
+            lines.append(f"🚫 <b>Out of scope added</b> ({len(data['newOutOfScope'])})")
+            lines.extend(_scope_list(data["newOutOfScope"]))
         if data.get("removeOutOfScope"):
-            lines.append("\n<b>Out of scope removed:</b>")
-            lines.append(f"<code>{_esc(chr(10).join(data['removeOutOfScope']))}</code>")
+            lines.append("")
+            lines.append(f"✅ <b>Out of scope removed</b> ({len(data['removeOutOfScope'])})")
+            lines.extend(_scope_list(data["removeOutOfScope"]))
         for scope in data.get("changedScope", []):
-            lines.append("\n<b>Scope changed:</b>")
-            diff = []
+            lines.append("")
+            lines.append("<b>✏️ Scope changed</b>")
             for line in scope["old"].splitlines():
-                diff.append(f"- {_esc(line)}")
+                if line.strip():
+                    lines.append(f"<code>- {_esc(line)}</code>")
             for line in scope["new"].splitlines():
-                diff.append(f"+ {_esc(line)}")
-            lines.append(f"<code>{chr(10).join(diff)}</code>")
+                if line.strip():
+                    lines.append(f"<code>+ {_esc(line)}</code>")
+
+    if data.get("note"):
+        lines.append("")
+        lines.append(f"ℹ️ {_esc(data['note'])}")
 
     return "\n".join(lines)
 

@@ -33,6 +33,7 @@ from modules.notifier.telegram import send_info
 from modules.platforms.functions import (check_send_notification,
                                          find_program, generate_program_key,
                                          save_data)
+from modules.platforms.live_common import fmt_iso, now_cairo_str
 
 API_BASE = "https://api.yeswehack.com/programs"
 _UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) programs-watcher/1.0"}
@@ -100,6 +101,7 @@ def _base_message(title, programType, programURL, logo, extra):
         "isNewProgram": False, "color": 16270147,
         "newType": [], "reward": [], "removeInScope": [],
         "newInScope": [], "note": "",
+        "updated_at": "", "detected_at": now_cairo_str(),
     }
     data.update(extra)
     return data
@@ -170,7 +172,9 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
             data = _base_message(title, programType, programURL,
                                  base_doc["logo"],
                                  {"isNewProgram": True, "reward": reward,
-                                  "newInScope": scopes})
+                                  "newInScope": scopes,
+                                  "updated_at": fmt_iso(base_doc["lastUpdateAt"])
+                                  if base_doc["lastUpdateAt"] else ""})
             if check_send_notification(first_time, True, data, watcher_doc,
                                        config["monitor"], notifications):
                 discord_notifier.send_notification(data, mUrl)
@@ -233,6 +237,8 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
 
         if notes:
             data["note"] = "; ".join(notes)
+        data["updated_at"] = fmt_iso(base_doc["lastUpdateAt"]) \
+            if base_doc["lastUpdateAt"] else ""
         if is_update:
             save_data(db, "yeswehack", programKey, new_doc)
             if check_send_notification(first_time, is_update, data, watcher,
@@ -254,6 +260,8 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
             "programName": program["programName"],
             "programType": program["programType"],
             "note": "",
+            "updated_at": "",
+            "detected_at": now_cairo_str(),
         }
         if notifications["removed_program"] and not first_time:
             discord_notifier.send_notification(data, mUrl)
