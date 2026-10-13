@@ -306,7 +306,8 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
                 data["note"] = ("platform logged an internal update (no "
                                 "visible scope change) — check the page")
             is_update = True
+        new_doc["scopeTimestamps"] = stamps
+        save_data(db, "hackerone", program_key, new_doc)
         if is_update:
-            save_data(db, "hackerone", program_key, new_doc)
             _notify(db, config, first_time, data, doc, True, mUrl)
         mark_checked(db, "hackerone", program_key)
