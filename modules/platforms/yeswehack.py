@@ -191,10 +191,12 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
         if watcher.get("programType") != programType:
             if notifications["new_type"]:
                 data["newType"] = programType
+                data["type_old"] = watcher.get("programType")
                 is_update = True
         if watcher.get("reward") != reward:
             if notifications["new_bounty_table"]:
                 data["reward"] = reward
+                data["reward_old"] = watcher.get("reward")
                 is_update = True
         if watcher.get("status", "V") != base_doc["status"]:
             notes.append(f"status: {watcher.get('status', '?')} -> "

@@ -201,6 +201,7 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
         if watcher.get("programType") != program_type:
             if config["notifications"]["new_type"]:
                 data["newProgramType"] = program_type
+                data["type_old"] = watcher.get("programType")
                 is_update = True
         old_state = watcher.get("submissionState") or "open"
         if old_state != node.get("submission_state"):

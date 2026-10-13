@@ -280,11 +280,58 @@ def ig_scenario():
     REC.reset()
 
 
+def telegram_scenario():
+    print("== Telegram: channel routing + old->new rendering ==")
+    import modules.notifier.telegram as tg
+    orig_channel_chat_id = tg.channel_chat_id
+    posts = []
+    tg._post = lambda text, token, chat_id: posts.append(chat_id)
+    data = {
+        "platformName": "YesWeHack", "isRemoved": False,
+        "isNewProgram": False, "programName": "Test Program",
+        "programType": "rdp", "programURL": "https://yeswehack.com/programs/t",
+        "reward": {"min": "200 EUR", "max": "9000 EUR"},
+        "reward_old": {"min": "100 EUR", "max": "5000 EUR"},
+        "newType": "rdp", "type_old": "vdp",
+        "newInScope": ["new.com"], "removeInScope": ["old.com"],
+        "note": "", "updated_at": "2026-10-13 02:00 Cairo",
+        "detected_at": "2026-10-13 02:00 Cairo",
+    }
+    text = tg.build_message_text(data)
+    check("bounty old->new rendered",
+          "Bounty</b>: 100 EUR – 5000 EUR ➜ 200 EUR – 9000 EUR" in text)
+    check("type old->new rendered", "Type</b>: vdp ➜ rdp" in text)
+    check("date line present", "🕒 <b>Updated:</b>" in text)
+
+    tg.channel_chat_id = lambda: "-100channel"
+    tg.send(data)
+    check("alert goes to private + channel", posts.count("-100channel") == 1
+          and len(posts) == 2)
+    posts.clear()
+    tg.channel_chat_id = lambda: None
+    tg.quiet(100)
+    check("quiet message stays private only", len(posts) == 1
+          and "-100channel" not in posts)
+    # a placeholder resolves to None inside the real channel_chat_id,
+    # so send() sees None and stays private-only
+    tg.channel_chat_id = lambda: None
+    posts.clear()
+    tg.send(data)
+    check("placeholder channel = disabled", len(posts) == 1)
+
+    # restore the REAL channel_chat_id: local config.yml holds the
+    # placeholder, so it must resolve to None (disabled)
+    tg.channel_chat_id = orig_channel_chat_id
+    check("real channel_chat_id: placeholder -> None",
+          orig_channel_chat_id() is None)
+
+
 def main():
     install_common()
     bc_scenario()
     h1_scenario()
     ig_scenario()
+    telegram_scenario()
     print()
     if FAILURES:
         print(f"SELFTEST FAILED ({len(FAILURES)}):")

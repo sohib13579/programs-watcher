@@ -186,10 +186,12 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
         if watcher.get("programType") != program_type:
             if config["notifications"]["new_type"]:
                 data["newType"] = program_type
+                data["type_old"] = watcher.get("programType")
                 is_update = True
         if watcher.get("reward") != reward:
             if config["notifications"]["new_bounty_table"]:
                 data["reward"] = reward
+                data["reward_old"] = watcher.get("reward")
                 is_update = True
         if watcher.get("accessStatus", "open") != access:
             notes.append(f"access status: "

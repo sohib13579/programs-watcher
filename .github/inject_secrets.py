@@ -16,6 +16,9 @@ if os.environ.get("TELEGRAM_BOT_TOKEN"):
     tg["bot_token"] = os.environ["TELEGRAM_BOT_TOKEN"]
 if os.environ.get("TELEGRAM_CHAT_ID"):
     tg["chat_id"] = os.environ["TELEGRAM_CHAT_ID"]
+# optional public channel for program updates (unset/empty = disabled)
+if os.environ.get("TELEGRAM_CHANNEL_ID"):
+    tg["channel_chat_id"] = os.environ["TELEGRAM_CHANNEL_ID"]
 
 with open("config.yml", "w", encoding="utf-8") as f:
     yaml.dump(cfg, f, allow_unicode=True)

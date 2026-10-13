@@ -121,10 +121,12 @@ def check_intigriti(tmp_dir, mUrl, first_time, db, config):
         if watcher.get("programType") != program_type:
             if config["notifications"]["new_type"]:
                 data["newProgramType"] = program_type
+                data["type_old"] = watcher.get("programType")
                 is_update = True
         if watcher.get("reward") != reward:
             if config["notifications"]["new_bounty_table"]:
                 data["newReward"] = reward
+                data["reward_old"] = watcher.get("reward")
                 is_update = True
         if watcher.get("status") != program.get("status"):
             notes.append(f"status: {watcher.get('status')} -> "

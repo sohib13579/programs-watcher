@@ -34,11 +34,14 @@ def _esc(text):
     return html.escape(str(text), quote=False)
 
 
-def _bounty_line(reward):
-    if reward and reward.get("min") and reward.get("max"):
-        return (f"💰 <b>Bounty</b>: {_esc(reward['min'])} – "
-                f"{_esc(reward['max'])}")
-    return ""
+def _bounty_line(reward, old=None):
+    if not (reward and reward.get("min") and reward.get("max")):
+        return ""
+    new = f"{_esc(reward['min'])} – {_esc(reward['max'])}"
+    if old and old.get("min") and old.get("max") and old != reward:
+        old_s = f"{_esc(old['min'])} – {_esc(old['max'])}"
+        return f"💰 <b>Bounty</b>: {old_s} ➜ {new}"
+    return f"💰 <b>Bounty</b>: {new}"
 
 
 PLATFORM_ICONS = {
@@ -87,9 +90,14 @@ def build_message_text(data):
         new_type = data.get("newProgramType") or data.get("newType")
         if new_type and not data["isNewProgram"]:
             lines.append("")
-            lines.append(f"🔄 <b>Type changed:</b> {_esc(new_type)}")
+            old_type = data.get("type_old")
+            if old_type:
+                lines.append(f"🔄 <b>Type</b>: {_esc(old_type)} ➜ "
+                             f"{_esc(new_type)}")
+            else:
+                lines.append(f"🔄 <b>Type changed:</b> {_esc(new_type)}")
         reward = data.get("newReward") or data.get("reward")
-        bounty = _bounty_line(reward)
+        bounty = _bounty_line(reward, data.get("reward_old"))
         if bounty:
             lines.append("")
             lines.append(bounty.rstrip())
@@ -160,9 +168,31 @@ def _post(text, token, chat_id):
             print(f"Telegram send error {resp.status_code}: {resp.text}")
 
 
+def channel_chat_id():
+    """Public channel for polished program updates only — quiet messages,
+    heartbeats and error notices stay private. Disabled while unset
+    ("<...>" placeholder). Env override: TELEGRAM_CHANNEL_ID."""
+    with open("config.yml", "r", encoding="utf-8") as f:
+        cfg = yaml.full_load(f)
+    tg = cfg.get("telegram", {}) or {}
+    cid = os.environ.get("TELEGRAM_CHANNEL_ID", tg.get("channel_chat_id", ""))
+    if not cid or str(cid).startswith("<"):
+        return None
+    return str(cid)
+
+
 def send(data):
+    """Real program alerts: private chat + public channel (if set)."""
     token, chat_id = load_telegram_config()
-    _post(build_message_text(data), token, chat_id)
+    text = build_message_text(data)
+    _post(text, token, chat_id)
+    channel = channel_chat_id()
+    if channel and channel != str(chat_id):
+        try:
+            _post(text, token, channel)
+        except Exception as e:
+            # channel trouble must never block the private alert
+            print("Channel send error:", e)
 
 
 def heartbeat(now_utc, total_programs):
