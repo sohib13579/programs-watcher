@@ -44,9 +44,18 @@ jobs:
           trap 'kill $LISTENER_PID 2>/dev/null || true' EXIT
           for i in $(seq 1 20); do
             echo "=== check $i/20 ==="
+            # a dead listener means the operator's /start gets silence —
+            # revive it every cycle and surface its last errors
+            kill -0 $LISTENER_PID 2>/dev/null || {
+              echo "[watchdog] listener died — restarting"
+              tail -5 listener.log 2>/dev/null || true
+              python .github/bot_listener.py >> listener.log 2>&1 &
+              LISTENER_PID=$!
+            }
             python main.py || echo "check failed (will retry next cycle)"
             python .github/maybe_top10.py || echo "top10 skipped/failed (retry next cycle)"
             python .github/chain_guard.py touch
+            tail -2 listener.log 2>/dev/null || true
             if [ "$i" -lt 20 ]; then sleep 860; fi
           done
       - name: Re-arm next chain

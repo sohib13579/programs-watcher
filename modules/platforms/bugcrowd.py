@@ -21,6 +21,7 @@ Per ~15-min cycle:
 First run silently reseeds (directory + newest revision per program).
 """
 import datetime
+import json
 import time
 
 import modules.notifier.discord as discord_notifier
@@ -77,9 +78,16 @@ def _latest_revision(brief_url):
 
 def _revision_scope(show_url):
     detail = api_get(f"{BC_BASE}{show_url}.json")
-    groups = (detail.get("data") or {}).get("scope") or []
+    data = detail.get("data") or {}
+    groups = data.get("scope") or []
     in_scope, out_scope = _scopes_from_groups(groups)
-    return in_scope, out_scope, detail.get("statusLabel") or ""
+    brief = data.get("brief") or {}
+    brief_text = json.dumps(
+        {k: brief.get(k) for k in
+         ("tagline", "description", "additionalInformation")},
+        sort_keys=True) if brief else ""
+    return (in_scope, out_scope, detail.get("statusLabel") or "",
+            brief_text)
 
 
 def _base_message(name, ptype, url, logo, extra):
@@ -144,9 +152,10 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
                 published_at, show_url = _latest_revision(brief_url)
                 doc["lastChangelogAt"] = published_at
                 if show_url:
-                    in_scope, out_scope, status_label = _revision_scope(show_url)
+                    in_scope, out_scope, status_label, brief =                         _revision_scope(show_url)
                     doc["inScope"], doc["outOfScope"] = in_scope, out_scope
                     doc["statusLabel"] = status_label
+                    doc["briefText"] = brief
                 time.sleep(_PAGE_DELAY_S)
             except Exception as exc:
                 print(f"[bugcrowd] revision fetch failed for {name}: {exc}")
@@ -160,12 +169,13 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
             try:
                 published_at, show_url = _latest_revision(brief_url)
                 if show_url:
-                    in_scope, out_scope, _ = _revision_scope(show_url)
+                    in_scope, out_scope, _, brief = _revision_scope(show_url)
                     updated_at = fmt_iso(published_at) if published_at else ""
             except Exception as exc:
                 print(f"[bugcrowd] revision fetch failed for {name}: {exc}")
             watcher_doc = dict(base_doc, inScope=in_scope, outOfScope=out_scope,
-                               lastChangelogAt=None, statusLabel="")
+                               lastChangelogAt=None, statusLabel="",
+                               briefText=brief)
             watcher_doc["lastCheckedAt"] = datetime.datetime.utcnow()
             save_data(db, "bugcrowd", program_key, watcher_doc)
             data = _base_message(name, program_type, program_url,
@@ -241,7 +251,7 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
             if doc.get("lastChangelogAt") == published_at:
                 mark_checked(db, "bugcrowd", program_key)
                 continue
-            in_scope, out_scope, status_label = _revision_scope(show_url)
+            in_scope, out_scope, status_label, brief =                 _revision_scope(show_url)
         except Exception as exc:
             print(f"[bugcrowd] changelog sweep failed for "
                   f"{doc.get('programName')}: {exc}")
@@ -285,9 +295,14 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
             data["removeOutOfScope"] = rem_out_scope
             is_update = True
         new_doc["inScope"], new_doc["outOfScope"] = in_scope, out_scope
+        if doc.get("briefText") is not None and brief != doc["briefText"]:
+            data["desc_changed"] = True
+            is_update = True
+        new_doc["briefText"] = brief
 
         if not is_update:
-            notes.append("brief updated (no scope/bounty change detected)")
+            notes.append("platform logged an internal update (no visible "
+                         "scope/bounty change) — check the program page")
             is_update = True
         if notes:
             data["note"] = "; ".join(notes)

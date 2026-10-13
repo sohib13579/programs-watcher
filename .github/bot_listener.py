@@ -14,10 +14,17 @@ sent while the job was down are answered on the next job.
 import datetime
 import json
 import os
+import sys
 import time
+from pathlib import Path
 
 import requests
 import yaml
+
+# running as `.github/bot_listener.py` puts .github/ (not the repo root)
+# on sys.path — fix it or the modules.* imports die instantly (silent
+# listener death, the bug that killed 2026-10-13's first deploy)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 POLL_TIMEOUT_S = 25
 ERROR_SLEEP_S = 15
@@ -87,9 +94,19 @@ def _handle(msg, token, owner, db, cfg, post_fn):
 def main():
     cfg = _load_cfg()
     token, owner = _owner_and_token(cfg)
-    db = _mongo_db(cfg)
-    doc = db["_meta"].find_one({"programKey": "tg_update_offset"})
-    offset = (doc or {}).get("offset", 0)
+    db = None
+    for attempt in range(5):
+        try:
+            db = _mongo_db(cfg)
+            doc = db["_meta"].find_one({"programKey": "tg_update_offset"})
+            offset = (doc or {}).get("offset", 0)
+            break
+        except Exception as exc:
+            print(f"[listener] mongo startup failed ({attempt + 1}/5): "
+                  f"{exc}", flush=True)
+            time.sleep(15)
+    if db is None:
+        raise SystemExit("[listener] mongo unreachable — giving up")
     print(f"[listener] running — owner={owner}, offset={offset}", flush=True)
 
     from modules.notifier.telegram import _post

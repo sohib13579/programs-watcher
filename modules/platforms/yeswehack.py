@@ -148,6 +148,8 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
             "lastUpdateAt": item.get("last_update_at") or "",
             "scopesCount": item.get("scopes_count") or 0,
             "logo": (item.get("thumbnail") or {}).get("url", ""),
+            "buDescription": ((item.get("business_unit") or {})
+                              .get("description") or ""),
         }
         watcher = find_program(db, "yeswehack", programKey)
 
@@ -202,6 +204,9 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
             data["status_old"] = watcher.get("status", "V")
             data["status_new"] = base_doc["status"]
             is_update = True
+        if watcher.get("buDescription") != base_doc["buDescription"]:
+            data["desc_changed"] = True
+            is_update = True
 
         metadata_changed = (
             watcher.get("lastUpdateAt") != base_doc["lastUpdateAt"]
@@ -231,10 +236,10 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
                     data["removeInScope"] = removedInScope
                     is_update = True
                 if not is_update:
-                    # timestamp moved with no scope/type/reward change:
-                    # still report it — the user wants every small update
-                    notes.append("platform reports an update (no scope/"
-                                 "bounty change detected)")
+                    # timestamp moved with nothing visible changed
+                    notes.append("platform logged an internal update (no "
+                                 "visible scope/bounty change) — check the "
+                                 "program page")
                     is_update = True
 
         if notes:

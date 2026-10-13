@@ -94,8 +94,9 @@ def bc_scenario():
     revisions = {
         "/engagements/prog-a": ("2026-10-06T19:56:36.194Z",
                                 "/engagements/prog-a/cl-1",
-                                ["a.com"], ["bad.com"], "In progress"),
-        "/engagements/prog-b": (None, None, [], [], ""),
+                                ["a.com"], ["bad.com"], "In progress",
+                                "brief-v1"),
+        "/engagements/prog-b": (None, None, [], [], "", ""),
     }
     bc._fetch_directory = lambda: list(dir_items)
     bc._latest_revision = lambda brief: revisions[brief][:2]
@@ -103,7 +104,7 @@ def bc_scenario():
     def rev_scope(show_url):
         for brief, r in revisions.items():
             if r[1] == show_url:
-                return r[2], r[3], r[4]
+                return r[2], r[3], r[4], r[5]
         raise RuntimeError("unknown revision")
 
     bc._revision_scope = rev_scope
@@ -134,7 +135,8 @@ def bc_scenario():
     # changelog sweep: scope change on Prog A
     revisions["/engagements/prog-a"] = ("2026-10-13T10:00:00.000Z",
                                         "/engagements/prog-a/cl-2",
-                                        ["a.com", "b.com"], [], "In progress")
+                                        ["a.com", "b.com"], [], "In progress",
+                                        "brief-v1")
     bc.pick_stale = lambda db, p, k: [db[p].find_one(
         {"programName": "Prog A"})["programKey"]]
     bc.check_bugcrowd("./tmp/", "hook", False, db, CONFIG)
@@ -145,14 +147,15 @@ def bc_scenario():
           a["updated_at"] == "2026-10-12 21:43 Cairo")
     REC.reset()
 
-    # sweep with no scope change -> generic note
+    # sweep with brief-text change -> desc_changed, no vague note
     revisions["/engagements/prog-a"] = ("2026-10-13T11:00:00.000Z",
                                         "/engagements/prog-a/cl-3",
-                                        ["a.com", "b.com"], [], "In progress")
+                                        ["a.com", "b.com"], [], "In progress",
+                                        "brief-v2")
     bc.check_bugcrowd("./tmp/", "hook", False, db, CONFIG)
     a = by_name("Prog A")
-    check("BC brief-only update note", a is not None
-          and "brief updated" in a["note"])
+    check("BC description change detected", a is not None
+          and a.get("desc_changed") is True and a["newInScope"] == [])
     REC.reset()
 
     # removed
