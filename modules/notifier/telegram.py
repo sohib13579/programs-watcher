@@ -125,8 +125,7 @@ def build_message_text(data):
     lines.append(f"📌 <b>{_esc(data['programName'])}</b> "
                  f"<i>({data.get('programType') or 'unknown type'})</i>")
     lines.append(_date_line(data))
-    if data.get("programURL"):
-        lines.append(f"🔗 <a href=\"{_esc(data['programURL'])}\">Open program page</a>")
+    # the program link is the inline keyboard button under the card
 
     if not data["isRemoved"]:
         if data["isNewProgram"]:
@@ -200,15 +199,17 @@ def _split_text(text, limit=MAX_MESSAGE_LEN):
     return chunks
 
 
-def _post(text, token, chat_id):
+def _post(text, token, chat_id, reply_markup=None):
     for i, chunk in enumerate(_split_text(text)):
         if i > 0:
             chunk = f"(continued {i + 1})\n{chunk}"
+        payload = {"chat_id": chat_id, "text": chunk,
+                   "parse_mode": "HTML", "disable_web_page_preview": True}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": chunk,
-                  "parse_mode": "HTML", "disable_web_page_preview": True},
-            timeout=30)
+            json=payload, timeout=30)
         if resp.status_code != 200:
             print(f"Telegram send error {resp.status_code}: {resp.text}")
 
@@ -230,11 +231,16 @@ def send(data):
     """Real program alerts: private chat + public channel (if set)."""
     token, chat_id = load_telegram_config()
     text = build_message_text(data)
-    _post(text, token, chat_id)
+    markup = None
+    if data.get("programURL"):
+        markup = {"inline_keyboard": [[
+            {"text": "🔗 Open program page",
+             "url": data["programURL"]}]]}
+    _post(text, token, chat_id, markup)
     channel = channel_chat_id()
     if channel and channel != str(chat_id):
         try:
-            _post(text, token, channel)
+            _post(text, token, channel, markup)
         except Exception as e:
             # channel trouble must never block the private alert
             print("Channel send error:", e)

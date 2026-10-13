@@ -75,8 +75,9 @@ def msg_looks_clean(data):
     text = build_message_text(data)
     ok_name = f"📌 <b>{data['programName']}</b>" in text
     ok_date = ("🕒 <b>Updated:</b>" in text) or ("🕒 <b>Detected:</b>" in text)
-    ok_link = "Open program page" in text
-    return ok_name and ok_date and ok_link, text
+    # the program link lives in the inline keyboard button now
+    ok_no_inline_link = '🔗 <a href=' not in text
+    return ok_name and ok_date and ok_no_inline_link, text
 
 
 # ---------------------------------------------------------------- bugcrowd
@@ -340,8 +341,9 @@ def telegram_scenario():
     print("== Telegram: channel routing + old->new rendering ==")
     import modules.notifier.telegram as tg
     orig_channel_chat_id = tg.channel_chat_id
-    posts = []
-    tg._post = lambda text, token, chat_id: posts.append(chat_id)
+    posts = []  # (chat_id, reply_markup)
+    tg._post = lambda text, token, chat_id, reply_markup=None: \
+        posts.append((chat_id, reply_markup))
     data = {
         "platformName": "YesWeHack", "isRemoved": False,
         "isNewProgram": False, "programName": "Test Program",
@@ -369,13 +371,17 @@ def telegram_scenario():
 
     tg.channel_chat_id = lambda: "-100channel"
     tg.send(data)
-    check("alert goes to private + channel", posts.count("-100channel") == 1
+    check("alert goes to private + channel",
+          len([p for p in posts if p[0] == "-100channel"]) == 1
           and len(posts) == 2)
+    check("inline button carries the program URL",
+          all(p[1] and p[1]["inline_keyboard"][0][0]["url"]
+              == data["programURL"] for p in posts))
     posts.clear()
     tg.channel_chat_id = lambda: None
     tg.quiet(100)
     check("quiet message stays private only", len(posts) == 1
-          and "-100channel" not in posts)
+          and posts[0][0] != "-100channel" and posts[0][1] is None)
     tg.channel_chat_id = lambda: None
     posts.clear()
     tg.send(data)
