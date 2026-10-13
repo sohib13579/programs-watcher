@@ -30,6 +30,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          INTIGRITI_TOKEN: ${{ secrets.INTIGRITI_TOKEN }}
       - name: Chain guard (skip if a chain is already alive)
         id: guard
         run: python .github/chain_guard.py guard
