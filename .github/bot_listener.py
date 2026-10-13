@@ -111,6 +111,11 @@ def main():
 
     from modules.notifier.telegram import _post
     while True:
+        # liveness heartbeat — readable from Atlas when the runner
+        # environment does something we can't see
+        db["_meta"].update_one(
+            {"programKey": "tg_listener_alive"},
+            {"$set": {"at": datetime.datetime.utcnow()}}, upsert=True)
         try:
             resp = requests.get(
                 f"https://api.telegram.org/bot{token}/getUpdates",
@@ -142,4 +147,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BaseException:
+        # dying silently cost us a whole deploy cycle — record WHY
+        import traceback
+        try:
+            cfg = _load_cfg()
+            _mongo_db(cfg)["_meta"].update_one(
+                {"programKey": "tg_listener_last_error"},
+                {"$set": {"at": datetime.datetime.utcnow(),
+                          "error": traceback.format_exc()[-1200:]}},
+                upsert=True)
+        except Exception:
+            pass
+        raise
