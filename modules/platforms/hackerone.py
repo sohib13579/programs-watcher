@@ -34,7 +34,7 @@ from modules.platforms.live_common import (alert_fetch_error, api_get,
 
 H1_GRAPHQL = "https://hackerone.com/graphql"
 TRACKED_STATES = ("open", "paused")
-ROLLING_K = 25
+ROLLING_K = 10
 _DIR_PAGE = 100
 
 TEAMS_QUERY = """
