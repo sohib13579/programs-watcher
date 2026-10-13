@@ -16,6 +16,8 @@ Per ~15-min cycle (a single list request):
 First run silently reseeds.
 """
 import datetime
+import json
+import time
 
 import modules.notifier.discord as discord_notifier
 from modules.platforms.functions import (check_send_notification,
@@ -31,6 +33,32 @@ _HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://app.intigriti.com/programs",
 }
+
+
+def _table_lines(bounty_table):
+    """Compact 'Score lo-hi: amount CUR' lines for a bountyTable."""
+    content = (bounty_table or {}).get("content") or {}
+    currency = content.get("currency") or ""
+    lines = []
+    for row in content.get("bountyRows") or []:
+        for r in row.get("bountyRanges") or []:
+            bounty = r.get("maxBounty") or r.get("minBounty") or {}
+            amount = bounty.get("value", "?")
+            cur = bounty.get("currency") or currency
+            lines.append(f"Score {r.get('minScore')}-{r.get('maxScore')}: "
+                         f"{amount} {cur}".strip())
+    return lines
+
+
+def _fetch_preview(company, handle):
+    """Public program preview (needs browser-ish headers, else 403)."""
+    headers = dict(_HEADERS,
+                   Referer=f"https://app.intigriti.com/programs/{company}/{handle}",
+                   **{"sec-fetch-dest": "empty", "sec-fetch-mode": "cors",
+                      "sec-fetch-site": "same-origin"})
+    preview = api_get(f"{IG_API}/{company}/{handle}/preview", headers=headers)
+    return (json.dumps(preview.get("bountyTable"), sort_keys=True),
+            preview.get("description") or "")
 
 
 def _bounty_line(program):
@@ -96,6 +124,13 @@ def check_intigriti(tmp_dir, mUrl, first_time, db, config):
         watcher = find_program(db, "intigriti", program_key)
 
         if reseed:
+            try:
+                table_json, description = _fetch_preview(company, handle)
+                base_doc["bountyTable"] = table_json
+                base_doc["description"] = description
+                time.sleep(0.2)
+            except Exception as exc:
+                print(f"[intigriti] preview fetch failed for {name}: {exc}")
             base_doc["lastCheckedAt"] = datetime.datetime.utcnow()
             save_data(db, "intigriti", program_key, base_doc)
             continue
@@ -132,11 +167,32 @@ def check_intigriti(tmp_dir, mUrl, first_time, db, config):
             data["status_old"] = watcher.get("status")
             data["status_new"] = program.get("status")
             is_update = True
-        if watcher.get("lastUpdatedAt") != updated_at and not is_update:
-            # platform timestamps an update we can't see anonymously
-            # (scope edits need a researcher token) — report it anyway
-            notes.append("program updated on Intigriti (details on the "
-                         "program page)")
+        if watcher.get("lastUpdatedAt") != updated_at:
+            # the list timestamp moved: diff the public preview (bounty
+            # table + description) to say WHAT changed
+            try:
+                table_json, description = _fetch_preview(company, handle)
+            except Exception as exc:
+                print(f"[intigriti] preview fetch failed for {name}: {exc}")
+                table_json, description = None, None
+            if table_json is not None:
+                old_table = watcher.get("bountyTable")
+                old_desc = watcher.get("description")
+                if old_table is not None and table_json != old_table:
+                    data["bounty_table_old"] = _table_lines(
+                        json.loads(old_table))
+                    data["bounty_table_new"] = _table_lines(
+                        json.loads(table_json))
+                    is_update = True
+                if old_desc is not None and description != old_desc:
+                    data["desc_changed"] = True
+                    is_update = True
+                new_doc["bountyTable"] = table_json
+                new_doc["description"] = description
+            if not is_update:
+                notes.append("platform logged an internal update "
+                             "(no visible scope/bounty change) — check "
+                             "the program page")
             is_update = True
 
         data["updated_at"] = fmt_epoch(updated_at) if updated_at else ""

@@ -228,7 +228,7 @@ def h1_scenario():
 
 # ---------------------------------------------------------------- intigriti
 def ig_scenario():
-    print("== Intigriti: reseed, bounty, updated-note, removed ==")
+    print("== Intigriti: reseed, bounty, table-diff, updated-note, removed ==")
     db = fresh_db()
     programs = [
         {"name": "IG One", "handle": "igone", "companyHandle": "co1",
@@ -240,36 +240,73 @@ def ig_scenario():
          "minBounty": {"value": 0, "currency": "EUR"}, "status": 3,
          "lastUpdatedAt": 1791820097},
     ]
-    ig.api_get = lambda url, retries=2, headers=None, timeout=30, params=None: \
-        list(programs)
+    previews = {
+        "co1/igone": {"bountyTable": {"content": {"currency": "EUR",
+                      "bountyRows": [{"bountyRanges": [
+                          {"minScore": 1, "maxScore": 4,
+                           "minBounty": {"value": 150, "currency": "EUR"},
+                           "maxBounty": {"value": 150, "currency": "EUR"}}]}]}},
+                      "description": "desc-v1"},
+    }
+    preview_broken = [False]
+
+    def fake_get(url, retries=2, headers=None, timeout=30, params=None):
+        if "/preview" in url:
+            if preview_broken[0]:
+                raise RuntimeError("preview down")
+            key = "/".join(url.split("/")[-3:-1])
+            p = previews.get(key) or {"bountyTable": None,
+                                      "description": "d-" + key}
+            return dict(p)
+        return list(programs)
+
+    ig.api_get = fake_get
     ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
     check("IG reseed: no notifications", len(REC.sent) == 0)
     check("IG reseed: one info", len(REC.infos) == 1)
-    check("IG reseed: 2 docs", db["intigriti"].count_documents({}) == 2)
+    doc_one = db["intigriti"].find_one({"programName": "IG One"})
+    check("IG reseed stores bountyTable baseline",
+          doc_one.get("bountyTable") is not None
+          and doc_one.get("description") == "desc-v1")
     REC.reset()
 
     ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
     check("IG idempotent", len(REC.sent) == 0 and len(REC.infos) == 0)
 
-    # bounty change
-    programs[0]["maxBounty"]["value"] = 7000.0
-    ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
-    one = by_name("IG One")
-    check("IG bounty change alerted", one is not None
-          and one["newReward"]["max"] == "7000.0 EUR")
-    ok, text = msg_looks_clean(one)
-    check("IG message format (name+date+link)", ok)
-    REC.reset()
-
-    # timestamp-only update (no re-alert loop)
+    # bounty table change on timestamp bump -> precise diff, no vague note
+    previews["co1/igone"]["bountyTable"]["content"]["bountyRows"][0][
+        "bountyRanges"][0]["maxBounty"]["value"] = 300
     programs[0]["lastUpdatedAt"] = 1791908535
     ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
     one = by_name("IG One")
-    check("IG updated note", one is not None
-          and "program updated" in one["note"])
+    check("IG table change detected", one is not None
+          and one.get("bounty_table_new") == ["Score 1-4: 300 EUR"])
+    from modules.notifier.telegram import build_message_text
+    text = build_message_text(one)
+    check("IG table rendered as +/- lines",
+          "<code>- Score 1-4: 150 EUR</code>" in text
+          and "<code>+ Score 1-4: 300 EUR</code>" in text)
+    check("IG no vague note when diff known", one["note"] == "")
+    REC.reset()
+
+    # timestamp bump with nothing visibly changed -> clear generic note
     REC.reset()
     ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
-    check("IG no re-alert loop", len(REC.sent) == 0)
+    check("IG no re-alert loop (same timestamp)", len(REC.sent) == 0)
+    previews["co1/igone"]["description"] = "desc-v2"
+    programs[0]["lastUpdatedAt"] = 1791994935
+    ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
+    one = by_name("IG One")
+    check("IG description change detected", one is not None
+          and one.get("desc_changed") is True)
+    REC.reset()
+    previews["co1/igone"]["description"] = "desc-v2"
+    programs[0]["lastUpdatedAt"] = 1792081335
+    preview_broken[0] = True  # preview endpoint down
+    ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
+    one = by_name("IG One")
+    check("IG internal-update note when nothing visible",
+          one is not None and "internal update" in one["note"])
     REC.reset()
 
     # removed
@@ -304,7 +341,6 @@ def telegram_scenario():
     check("date line present", "🕒 <b>Updated:</b>" in text)
     check("WHAT CHANGED section present", "WHAT CHANGED" in text)
 
-    # status codes render as words per platform (the TrueLayer complaint)
     ig_data = dict(data, platformName="Intigriti", status_old=4,
                    status_new=3, reward_old=None, newReward=None,
                    reward=[], newType="", type_old=None)
@@ -321,15 +357,11 @@ def telegram_scenario():
     tg.quiet(100)
     check("quiet message stays private only", len(posts) == 1
           and "-100channel" not in posts)
-    # a placeholder resolves to None inside the real channel_chat_id,
-    # so send() sees None and stays private-only
     tg.channel_chat_id = lambda: None
     posts.clear()
     tg.send(data)
-    check("placeholder channel = disabled", len(posts) == 1)
+    check("disabled channel = private only", len(posts) == 1)
 
-    # restore the REAL channel_chat_id: local config.yml holds the live
-    # channel, so it must resolve to that id (env override absent here)
     tg.channel_chat_id = orig_channel_chat_id
     resolved = orig_channel_chat_id()
     check("real channel_chat_id: resolves live channel or disabled",

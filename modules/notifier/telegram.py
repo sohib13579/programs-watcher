@@ -106,6 +106,8 @@ def _what_changed_lines(data):
     bounty = _bounty_line(reward, data.get("reward_old"))
     if bounty:
         lines.append(bounty)
+    if data.get("desc_changed"):
+        lines.append("📝 <b>Description updated</b>")
     return lines
 
 
@@ -148,6 +150,15 @@ def build_message_text(data):
                 lines.append("")
                 lines.append("━━━ 🔄 <b>WHAT CHANGED</b> ━━━")
                 lines.extend(changed)
+            old_tbl = data.get("bounty_table_old")
+            new_tbl = data.get("bounty_table_new")
+            if new_tbl is not None and old_tbl != new_tbl:
+                lines.append("")
+                lines.append("💰 <b>Bounty table</b>")
+                for l in (old_tbl or []):
+                    lines.append(f"<code>- {_esc(l)}</code>")
+                for l in new_tbl:
+                    lines.append(f"<code>+ {_esc(l)}</code>")
             for key, label in (("newScope", "➕ Scope added"),
                                ("newInScope", "➕ In scope added"),
                                ("removedScope", "➖ Scope removed"),
