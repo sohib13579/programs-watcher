@@ -94,7 +94,7 @@ def _fetch_scopes(handle):
     team = _graphql(SCOPES_QUERY, {"handle": handle}).get("team")
     if not team:
         return None
-    scopes, latest = {}, ""
+    scopes, stamps, latest = {}, {}, ""
     for node in (team.get("structured_scopes") or {}).get("nodes") or []:
         kind = "(InScope)" if node.get("eligible_for_submission") \
             else "(OutOfScope)"
@@ -103,10 +103,11 @@ def _fetch_scopes(handle):
         if instruction:
             text += f"{instruction}\n"
         scopes[node.get("id")] = text
-        updated = node.get("updated_at")
+        updated = node.get("updated_at") or ""
+        stamps[node.get("id")] = updated
         if updated and updated > latest:
             latest = updated
-    return scopes, latest
+    return scopes, latest, stamps
 
 
 def _base_message(name, ptype, url, logo, extra):
@@ -162,9 +163,10 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
         if reseed:
             doc = dict(base_doc, scope={})
             try:
-                scopes, latest = _fetch_scopes(handle)
+                scopes, latest, stamps = _fetch_scopes(handle)
                 if scopes is not None:
                     doc["scope"], doc["lastScopeUpdatedAt"] = scopes, latest
+                    doc["scopeTimestamps"] = stamps
                 time.sleep(0.3)
             except Exception as exc:
                 print(f"[hackerone] scope fetch failed for {handle}: {exc}")
@@ -173,15 +175,16 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
             continue
 
         if watcher is None:
-            scopes, latest = {}, ""
+            scopes, latest, stamps = {}, "", {}
             try:
-                scopes, latest = _fetch_scopes(handle)
+                scopes, latest, stamps = _fetch_scopes(handle)
                 if scopes is None:
                     scopes = {}
             except Exception as exc:
                 print(f"[hackerone] scope fetch failed for {handle}: {exc}")
             watcher_doc = dict(base_doc, scope=scopes,
                                lastScopeUpdatedAt=latest,
+                               scopeTimestamps=stamps,
                                lastCheckedAt=datetime.datetime.utcnow())
             save_data(db, "hackerone", program_key, watcher_doc)
             data = _base_message(name, program_type, program_url, "",
@@ -252,7 +255,7 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
         if not doc or not doc.get("handle"):
             continue
         try:
-            scopes, latest = _fetch_scopes(doc["handle"])
+            scopes, latest, stamps = _fetch_scopes(doc["handle"])
             if scopes is None:
                 mark_checked(db, "hackerone", program_key)
                 continue
@@ -266,6 +269,7 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
         new_doc = dict(doc)
         new_doc["scope"] = scopes
         new_doc["lastScopeUpdatedAt"] = latest
+        new_doc["scopeTimestamps"] = stamps
         old_scopes = doc.get("scope") or {}
         is_update = False
         data = _base_message(doc["programName"],
@@ -289,7 +293,18 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
             data["changedScope"] = changed
             is_update = True
         if not is_update and doc.get("lastScopeUpdatedAt") != latest:
-            data["note"] = "platform reports an update (no scope change)"
+            old_stamps = doc.get("scopeTimestamps") or {}
+            new_ids = set(stamps) & set(scopes)
+            touched = sorted({scopes[i].split(" ", 1)[0] for i in new_ids
+                              if stamps.get(i)
+                              and stamps[i] > (old_stamps.get(i) or "")})
+            if touched:
+                data["note"] = ("H1 logged updates on: "
+                                + ", ".join(touched[:8])
+                                + " (no scope-text change detected)")
+            else:
+                data["note"] = ("platform logged an internal update (no "
+                                "visible scope change) — check the page")
             is_update = True
         if is_update:
             save_data(db, "hackerone", program_key, new_doc)

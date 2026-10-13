@@ -67,13 +67,14 @@ def _scopes_from_groups(groups):
 
 
 def _latest_revision(brief_url):
-    """(publishedAt, showUrl) of the newest changelog revision, or None."""
+    """(publishedAt, showUrl, tags) of the newest changelog revision."""
     changelogs = (api_get(f"{BC_BASE}{brief_url}/changelog.json")
                   .get("changelogs") or [])
     if not changelogs:
-        return None, None
+        return None, None, ""
     latest = changelogs[0]
-    return latest.get("publishedAt"), latest.get("changelogShowUrl")
+    return (latest.get("publishedAt"), latest.get("changelogShowUrl"),
+            latest.get("tags") or "")
 
 
 def _revision_scope(show_url):
@@ -86,8 +87,10 @@ def _revision_scope(show_url):
         {k: brief.get(k) for k in
          ("tagline", "description", "additionalInformation")},
         sort_keys=True) if brief else ""
+    reward_ranges = [f"{g.get('name', '?')}: {g.get('rewardRange')}"
+                     for g in groups if g.get("rewardRange")]
     return (in_scope, out_scope, detail.get("statusLabel") or "",
-            brief_text)
+            brief_text, reward_ranges)
 
 
 def _base_message(name, ptype, url, logo, extra):
@@ -149,13 +152,15 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
             doc = dict(base_doc, inScope=[], outOfScope=[],
                        lastChangelogAt=None, statusLabel="")
             try:
-                published_at, show_url = _latest_revision(brief_url)
+                published_at, show_url, _tag = _latest_revision(brief_url)
                 doc["lastChangelogAt"] = published_at
                 if show_url:
-                    in_scope, out_scope, status_label, brief =                         _revision_scope(show_url)
+                    in_scope, out_scope, status_label, brief, rranges = \
+                        _revision_scope(show_url)
                     doc["inScope"], doc["outOfScope"] = in_scope, out_scope
                     doc["statusLabel"] = status_label
                     doc["briefText"] = brief
+                    doc["rewardRanges"] = rranges
                 time.sleep(_PAGE_DELAY_S)
             except Exception as exc:
                 print(f"[bugcrowd] revision fetch failed for {name}: {exc}")
@@ -167,15 +172,15 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
             in_scope, out_scope = [], []
             updated_at = ""
             try:
-                published_at, show_url = _latest_revision(brief_url)
+                published_at, show_url, _tag = _latest_revision(brief_url)
                 if show_url:
-                    in_scope, out_scope, _, brief = _revision_scope(show_url)
+                    in_scope, out_scope, _, brief, rranges =                         _revision_scope(show_url)
                     updated_at = fmt_iso(published_at) if published_at else ""
             except Exception as exc:
                 print(f"[bugcrowd] revision fetch failed for {name}: {exc}")
             watcher_doc = dict(base_doc, inScope=in_scope, outOfScope=out_scope,
                                lastChangelogAt=None, statusLabel="",
-                               briefText=brief)
+                               briefText=brief, rewardRanges=rranges)
             watcher_doc["lastCheckedAt"] = datetime.datetime.utcnow()
             save_data(db, "bugcrowd", program_key, watcher_doc)
             data = _base_message(name, program_type, program_url,
@@ -244,14 +249,14 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
             continue
         brief_url = program_url[len(BC_BASE):]
         try:
-            published_at, show_url = _latest_revision(brief_url)
+            published_at, show_url, ch_tag = _latest_revision(brief_url)
             if not show_url:
                 mark_checked(db, "bugcrowd", program_key)
                 continue
             if doc.get("lastChangelogAt") == published_at:
                 mark_checked(db, "bugcrowd", program_key)
                 continue
-            in_scope, out_scope, status_label, brief =                 _revision_scope(show_url)
+            in_scope, out_scope, status_label, brief, rranges =                 _revision_scope(show_url)
         except Exception as exc:
             print(f"[bugcrowd] changelog sweep failed for "
                   f"{doc.get('programName')}: {exc}")
@@ -299,10 +304,17 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
             data["desc_changed"] = True
             is_update = True
         new_doc["briefText"] = brief
+        old_rr = doc.get("rewardRanges")
+        if old_rr is not None and rranges != old_rr:
+            data["bounty_table_old"] = old_rr
+            data["bounty_table_new"] = rranges
+            is_update = True
+        new_doc["rewardRanges"] = rranges
 
         if not is_update:
-            notes.append("platform logged an internal update (no visible "
-                         "scope/bounty change) — check the program page")
+            tag = f" (changelog tag: {ch_tag})" if ch_tag else ""
+            notes.append("platform logged an internal update, no visible "
+                         "scope/bounty/reward/brief change" + tag)
             is_update = True
         if notes:
             data["note"] = "; ".join(notes)

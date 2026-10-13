@@ -99,12 +99,12 @@ def bc_scenario():
         "/engagements/prog-b": (None, None, [], [], "", ""),
     }
     bc._fetch_directory = lambda: list(dir_items)
-    bc._latest_revision = lambda brief: revisions[brief][:2]
+    bc._latest_revision = lambda brief: revisions[brief][:2] + ("brief",)
 
     def rev_scope(show_url):
         for brief, r in revisions.items():
             if r[1] == show_url:
-                return r[2], r[3], r[4], r[5]
+                return r[2], r[3], r[4], r[5], ["Grp A: $100 - $5,000"]
         raise RuntimeError("unknown revision")
 
     bc._revision_scope = rev_scope
@@ -179,8 +179,10 @@ def h1_scenario():
     ]
     scopes = {
         "progx": ({"id1": "x.com (InScope)\n", "id2": "y.com (OutOfScope)\n"},
-                  "2026-10-10T12:00:00.000Z"),
-        "progy": ({"id3": "z.com (InScope)\n"}, ""),
+                  "2026-10-10T12:00:00.000Z",
+                  {"id1": "2026-10-10T12:00:00.000Z",
+                   "id2": "2026-10-10T12:00:00.000Z"}),
+        "progy": ({"id3": "z.com (InScope)\n"}, "", {"id3": ""}),
     }
     h1._fetch_directory = lambda: list(teams)
     h1._fetch_scopes = lambda h: scopes[h]
@@ -204,7 +206,9 @@ def h1_scenario():
     # scope sweep: add + text change on Prog X
     scopes["progx"] = ({"id1": "x.com (InScope)\nCHANGED",
                         "id3": "new.com (InScope)\n"},
-                       "2026-10-13T09:00:00.000Z")
+                       "2026-10-13T09:00:00.000Z",
+                       {"id1": "2026-10-13T09:00:00.000Z",
+                        "id3": "2026-10-13T09:00:00.000Z"})
     h1.pick_stale = lambda db, p, k: [db[p].find_one(
         {"programName": "Prog X"})["programKey"]]
     h1.check_hackerone("./tmp/", "hook", False, db, CONFIG)
@@ -217,6 +221,18 @@ def h1_scenario():
           x["updated_at"] == "2026-10-12 21:43 Cairo")
     ok, text = msg_looks_clean(x)
     check("H1 message format (name+date+link)", ok)
+    REC.reset()
+
+    # timestamp-only touch -> names the touched asset, no vague note
+    scopes["progx"] = ({"id1": "x.com (InScope)\nCHANGED",
+                        "id3": "new.com (InScope)\n"},
+                       "2026-10-13T11:00:00.000Z",
+                       {"id1": "2026-10-13T11:00:00.000Z",
+                        "id3": "2026-10-13T09:00:00.000Z"})
+    h1.check_hackerone("./tmp/", "hook", False, db, CONFIG)
+    x = by_name("Prog X")
+    check("H1 touched-asset note", x is not None
+          and "H1 logged updates on: x.com" in x["note"])
     REC.reset()
 
     # removed (state -> disabled, still exists)
