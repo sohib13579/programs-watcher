@@ -252,6 +252,7 @@ def ig_scenario():
     db = fresh_db()
     programs = [
         {"name": "IG One", "handle": "igone", "companyHandle": "co1",
+         "programId": "pid-1",
          "maxBounty": {"value": 4000.0, "currency": "EUR"},
          "minBounty": {"value": 50.0, "currency": "EUR"}, "status": 3,
          "lastUpdatedAt": 1791822135},
@@ -268,9 +269,16 @@ def ig_scenario():
                            "maxBounty": {"value": 150, "currency": "EUR"}}]}]}},
                       "description": "desc-v1"},
     }
+    domains = {"pid-1": [
+        {"id": "d1", "endpoint": "one.com", "description": "main"},
+        {"id": "d2", "endpoint": "two.com", "description": ""},
+    ]}
     preview_broken = [False]
 
     def fake_get(url, retries=2, headers=None, timeout=30, params=None):
+        if "/external/researcher" in url:
+            pid = url.rsplit("/", 1)[1]
+            return {"domains": {"content": domains.get(pid, [])}}
         if "/preview" in url:
             if preview_broken[0]:
                 raise RuntimeError("preview down")
@@ -288,6 +296,9 @@ def ig_scenario():
     check("IG reseed stores bountyTable baseline",
           doc_one.get("bountyTable") is not None
           and doc_one.get("description") == "desc-v1")
+    check("IG reseed stores domains baseline",
+          doc_one.get("domains") is not None
+          and set(doc_one["domains"]) == {"d1", "d2"})
     REC.reset()
 
     ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
@@ -307,6 +318,25 @@ def ig_scenario():
           "<code>- Score 1-4: 150 EUR</code>" in text
           and "<code>+ Score 1-4: 300 EUR</code>" in text)
     check("IG no vague note when diff known", one["note"] == "")
+    REC.reset()
+
+    # domain add/remove/edit on timestamp bump -> precise scope diff
+    REC.reset()
+    domains["pid-1"] = [
+        {"id": "d1", "endpoint": "one.com", "description": "main EDITED"},
+        {"id": "d3", "endpoint": "three.com", "description": "new"},
+    ]
+    programs[0]["lastUpdatedAt"] = 1792000000
+    ig.check_intigriti("./tmp/", "hook", False, db, CONFIG)
+    one = by_name("IG One")
+    check("IG domain added", one is not None and len(one["newScope"]) == 1
+          and "three.com" in one["newScope"][0])
+    check("IG domain removed", len(one["removedScope"]) == 1
+          and "two.com" in one["removedScope"][0])
+    check("IG domain edited", len(one["changedScope"]) == 1
+          and "EDITED" in one["changedScope"][0]["new"])
+    ok, text = msg_looks_clean(one)
+    check("IG domain card format", ok)
     REC.reset()
 
     # timestamp bump with nothing visibly changed -> clear generic note

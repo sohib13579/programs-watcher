@@ -19,6 +19,9 @@ if os.environ.get("TELEGRAM_CHAT_ID"):
 # optional public channel for program updates (unset/empty = disabled)
 if os.environ.get("TELEGRAM_CHANNEL_ID"):
     tg["channel_chat_id"] = os.environ["TELEGRAM_CHANNEL_ID"]
+# optional Intigriti researcher PAT (unset = public-level monitoring only)
+if os.environ.get("INTIGRITI_TOKEN"):
+    cfg["intigriti_token"] = os.environ["INTIGRITI_TOKEN"]
 
 with open("config.yml", "w", encoding="utf-8") as f:
     yaml.dump(cfg, f, allow_unicode=True)

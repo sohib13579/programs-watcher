@@ -34,7 +34,7 @@ from modules.platforms.live_common import (alert_fetch_error, api_get,
                                            pick_stale)
 
 BC_BASE = "https://bugcrowd.com"
-ROLLING_K = 12
+ROLLING_K = 25
 _PAGE_DELAY_S = 0.3
 _PAGE_SIZE = 24
 

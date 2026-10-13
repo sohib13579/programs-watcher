@@ -19,6 +19,8 @@ import datetime
 import json
 import time
 
+import yaml
+
 import modules.notifier.discord as discord_notifier
 from modules.platforms.functions import (check_send_notification,
                                          find_program, generate_program_key,
@@ -33,6 +35,43 @@ _HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://app.intigriti.com/programs",
 }
+
+
+def _ig_token():
+    import os
+    with open("config.yml", "r", encoding="utf-8") as f:
+        cfg = yaml.full_load(f)
+    tok = os.environ.get("INTIGRITI_TOKEN", cfg.get("intigriti_token", ""))
+    if not tok or str(tok).startswith("<"):
+        return None
+    return str(tok)
+
+
+def _fetch_domains(program_id):
+    """{domain_id: 'endpoint
+description
+'} via the researcher API.
+    None = token missing/invalid (caller falls back gracefully)."""
+    import os
+    token = _ig_token()
+    if not token:
+        return None
+    headers = dict(_HEADERS)
+    headers["Authorization"] = f"Bearer {token}"
+    try:
+        detail = api_get(f"https://api.intigriti.com/external/researcher/"
+                         f"v1/programs/{program_id}", headers=headers)
+        content = ((detail.get("domains") or {}).get("content")) or []
+    except Exception as exc:
+        print(f"[intigriti] domain fetch failed for {program_id}: {exc}")
+        return None
+    domains = {}
+    for d in content:
+        text = f"{d.get('endpoint', '')}\n"
+        if d.get("description"):
+            text += f"{d['description']}\n"
+        domains[d.get("id")] = text
+    return domains
 
 
 def _table_lines(bounty_table):
@@ -131,6 +170,11 @@ def check_intigriti(tmp_dir, mUrl, first_time, db, config):
                 time.sleep(0.2)
             except Exception as exc:
                 print(f"[intigriti] preview fetch failed for {name}: {exc}")
+            if program.get("programId"):
+                doms = _fetch_domains(program["programId"])
+                if doms is not None:
+                    base_doc["domains"] = doms
+                    time.sleep(0.2)
             base_doc["lastCheckedAt"] = datetime.datetime.utcnow()
             save_data(db, "intigriti", program_key, base_doc)
             continue
@@ -189,6 +233,24 @@ def check_intigriti(tmp_dir, mUrl, first_time, db, config):
                     is_update = True
                 new_doc["bountyTable"] = table_json
                 new_doc["description"] = description
+            if program.get("programId"):
+                doms = _fetch_domains(program["programId"])
+                if doms is not None:
+                    old_doms = watcher.get("domains")
+                    if old_doms is not None and doms != old_doms:
+                        old_ids, new_ids = set(old_doms), set(doms)
+                        data["newScope"] = [doms[i] for i in new_ids
+                                            - old_ids]
+                        data["removedScope"] = [old_doms[i]
+                                                for i in old_ids - new_ids]
+                        data["changedScope"] = [
+                            {"old": old_doms[i], "new": doms[i]}
+                            for i in (old_ids & new_ids)
+                            if doms[i] != old_doms[i]]
+                        if (data["newScope"] or data["removedScope"]
+                                or data["changedScope"]):
+                            is_update = True
+                    new_doc["domains"] = doms
             if not is_update:
                 notes.append("platform logged an internal update "
                              "(no visible scope/bounty change) — check "
