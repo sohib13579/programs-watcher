@@ -30,11 +30,19 @@ jobs:
           print("token present:", bool(token), "| env:", bool(os.environ.get("INTIGRITI_TOKEN")))
           H = {"Authorization": "Bearer " + token, "User-Agent": "Mozilla/5.0",
                "Accept": "application/json"}
-          # 1. researcher list
+          # 1. researcher list — RAW body dump
           r = requests.get("https://api.intigriti.com/external/researcher/v1/programs",
                            params={"offset": 0, "limit": 500}, headers=H, timeout=30)
-          items = r.json() if r.status_code == 200 and isinstance(r.json(), list) else []
-          print("researcher list:", r.status_code, "| items:", len(items))
+          print("researcher list:", r.status_code, "| raw head:", r.text[:400])
+          # variants: different UA + no UA
+          for ua in ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
+                     "programs-watcher/1.0"):
+              r2 = requests.get("https://api.intigriti.com/external/researcher/v1/programs",
+                                params={"offset": 0, "limit": 5},
+                                headers={"Authorization": "Bearer " + token,
+                                         "User-Agent": ua, "Accept": "application/json"},
+                                timeout=30)
+              print(f"UA[{ua[:25]}]:", r2.status_code, "| raw:", r2.text[:200])
           # 2. detail for 5 programs known-good locally + 1 random
           for it in items[:5]:
               rr = requests.get(f"https://api.intigriti.com/external/researcher/v1/programs/{it['id']}",
