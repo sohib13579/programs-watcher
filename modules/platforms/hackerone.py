@@ -205,8 +205,8 @@ def check_hackerone(tmp_dir, mUrl, first_time, db, config):
                 is_update = True
         old_state = watcher.get("submissionState") or "open"
         if old_state != node.get("submission_state"):
-            notes.append(f"submission state: {old_state} -> "
-                         f"{node.get('submission_state')}")
+            data["status_old"] = old_state
+            data["status_new"] = node.get("submission_state")
             is_update = True
 
         if notes:

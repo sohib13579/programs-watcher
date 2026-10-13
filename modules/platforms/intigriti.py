@@ -129,8 +129,8 @@ def check_intigriti(tmp_dir, mUrl, first_time, db, config):
                 data["reward_old"] = watcher.get("reward")
                 is_update = True
         if watcher.get("status") != program.get("status"):
-            notes.append(f"status: {watcher.get('status')} -> "
-                         f"{program.get('status')}")
+            data["status_old"] = watcher.get("status")
+            data["status_new"] = program.get("status")
             is_update = True
         if watcher.get("lastUpdatedAt") != updated_at and not is_update:
             # platform timestamps an update we can't see anonymously

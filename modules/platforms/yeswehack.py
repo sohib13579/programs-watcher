@@ -199,8 +199,8 @@ def check_yeswehack(tmp_dir, mUrl, first_time, db, config):
                 data["reward_old"] = watcher.get("reward")
                 is_update = True
         if watcher.get("status", "V") != base_doc["status"]:
-            notes.append(f"status: {watcher.get('status', '?')} -> "
-                         f"{base_doc['status']}")
+            data["status_old"] = watcher.get("status", "V")
+            data["status_new"] = base_doc["status"]
             is_update = True
 
         metadata_changed = (

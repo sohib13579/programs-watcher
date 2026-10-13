@@ -262,7 +262,8 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
         if doc.get("statusLabel") and \
                 doc["statusLabel"] != status_label and \
                 status_label != "In progress":
-            notes.append(f"status: {doc['statusLabel']} -> {status_label}")
+            data["status_old"] = doc["statusLabel"]
+            data["status_new"] = status_label
             is_update = True
 
         old_in = doc.get("inScope") or []

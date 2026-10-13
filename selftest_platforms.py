@@ -194,8 +194,8 @@ def h1_scenario():
     teams[1]["submission_state"] = "open"
     h1.check_hackerone("./tmp/", "hook", False, db, CONFIG)
     y = by_name("Prog Y")
-    check("H1 state change note", y is not None
-          and "submission state: paused -> open" in y["note"])
+    check("H1 state change structured", y is not None
+          and y["status_old"] == "paused" and y["status_new"] == "open")
     REC.reset()
 
     # scope sweep: add + text change on Prog X
@@ -302,6 +302,15 @@ def telegram_scenario():
           "Bounty</b>: 100 EUR – 5000 EUR ➜ 200 EUR – 9000 EUR" in text)
     check("type old->new rendered", "Type</b>: vdp ➜ rdp" in text)
     check("date line present", "🕒 <b>Updated:</b>" in text)
+    check("WHAT CHANGED section present", "WHAT CHANGED" in text)
+
+    # status codes render as words per platform (the TrueLayer complaint)
+    ig_data = dict(data, platformName="Intigriti", status_old=4,
+                   status_new=3, reward_old=None, newReward=None,
+                   reward=[], newType="", type_old=None)
+    ig_text = tg.build_message_text(ig_data)
+    check("intigriti status words rendered",
+          "Status</b>: Paused ➜ Open" in ig_text)
 
     tg.channel_chat_id = lambda: "-100channel"
     tg.send(data)
@@ -319,11 +328,42 @@ def telegram_scenario():
     tg.send(data)
     check("placeholder channel = disabled", len(posts) == 1)
 
-    # restore the REAL channel_chat_id: local config.yml holds the
-    # placeholder, so it must resolve to None (disabled)
+    # restore the REAL channel_chat_id: local config.yml holds the live
+    # channel, so it must resolve to that id (env override absent here)
     tg.channel_chat_id = orig_channel_chat_id
-    check("real channel_chat_id: placeholder -> None",
-          orig_channel_chat_id() is None)
+    resolved = orig_channel_chat_id()
+    check("real channel_chat_id: resolves live channel or disabled",
+          resolved is None or str(resolved).startswith("-100"))
+
+
+def listener_scenario():
+    print("== Listener: owner answered, strangers silenced ==")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "bot_listener", ".github/bot_listener.py")
+    bl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bl)
+    db = fresh_db()
+    for name, _ in bl.PLATFORMS:
+        db[name].insert_one({"programKey": "x"})
+    cfg = {"telegram": {"bot_token": "T", "chat_id": "111",
+                        "channel_chat_id": "-100ch"},
+           "mongoDB": {"uri": "x", "database": "x"}}
+    posted = []
+    owner_msg = {"chat": {"id": 111}, "text": "/start"}
+    stranger_msg = {"chat": {"id": 999}, "text": "/start"}
+    bl._handle(owner_msg, "T", "111", db, cfg,
+               lambda t, tok, cid: posted.append((cid, t)))
+    check("owner /start answered", len(posted) == 1
+          and "PEBO Watcher" in posted[0][1] and posted[0][0] == "111")
+    bl._handle(stranger_msg, "T", "111", db, cfg,
+               lambda t, tok, cid: posted.append((cid, t)))
+    check("stranger /start ignored (no reply)", len(posted) == 1)
+    posted.clear()
+    bl._handle({"chat": {"id": 111}, "text": "hello"}, "T", "111", db, cfg,
+               lambda t, tok, cid: posted.append((cid, t)))
+    check("owner non-command gets hint", len(posted) == 1
+          and "/status" in posted[0][1])
 
 
 def main():
@@ -332,6 +372,7 @@ def main():
     h1_scenario()
     ig_scenario()
     telegram_scenario()
+    listener_scenario()
     print()
     if FAILURES:
         print(f"SELFTEST FAILED ({len(FAILURES)}):")

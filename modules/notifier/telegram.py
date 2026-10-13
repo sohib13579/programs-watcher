@@ -51,6 +51,18 @@ PLATFORM_ICONS = {
     "YesWeHack": "🟠",
 }
 MAX_SCOPE_ITEMS = 12
+# raw platform status codes -> human words (unknown codes pass through)
+STATUS_WORDS = {
+    "Intigriti": {1: "Draft", 2: "Closed", 3: "Open", 4: "Paused"},
+    "YesWeHack": {"V": "Running"},
+}
+
+
+def _status_word(platform, value):
+    mapping = STATUS_WORDS.get(platform)
+    if mapping is not None and value in mapping:
+        return mapping[value]
+    return str(value)
 
 
 def _scope_list(items):
@@ -67,6 +79,34 @@ def _date_line(data):
     if when:
         return f"🕒 <b>Updated:</b> {_esc(when)}"
     return f"🕒 <b>Detected:</b> {_esc(data.get('detected_at') or '')}"
+
+
+def _what_changed_lines(data):
+    """Every structured change as one clear 'label: old ➜ new' line."""
+    lines = []
+    status_old, status_new = data.get("status_old"), data.get("status_new")
+    if status_new not in (None, "") and status_new != status_old:
+        platform = data.get("platformName") or ""
+        old_w = _status_word(platform, status_old) if status_old not in (
+            None, "") else ""
+        new_w = _status_word(platform, status_new)
+        if old_w:
+            lines.append(f"📶 <b>Status</b>: {_esc(old_w)} ➜ {_esc(new_w)}")
+        else:
+            lines.append(f"📶 <b>Status</b>: {_esc(new_w)}")
+    new_type = data.get("newProgramType") or data.get("newType")
+    if new_type and not data["isNewProgram"]:
+        old_type = data.get("type_old")
+        if old_type:
+            lines.append(f"🔄 <b>Type</b>: {_esc(old_type)} ➜ "
+                         f"{_esc(new_type)}")
+        else:
+            lines.append(f"🔄 <b>Type</b>: {_esc(new_type)}")
+    reward = data.get("newReward") or data.get("reward")
+    bounty = _bounty_line(reward, data.get("reward_old"))
+    if bounty:
+        lines.append(bounty)
+    return lines
 
 
 def build_message_text(data):
@@ -87,53 +127,47 @@ def build_message_text(data):
         lines.append(f"🔗 <a href=\"{_esc(data['programURL'])}\">Open program page</a>")
 
     if not data["isRemoved"]:
-        new_type = data.get("newProgramType") or data.get("newType")
-        if new_type and not data["isNewProgram"]:
-            lines.append("")
-            old_type = data.get("type_old")
-            if old_type:
-                lines.append(f"🔄 <b>Type</b>: {_esc(old_type)} ➜ "
-                             f"{_esc(new_type)}")
-            else:
-                lines.append(f"🔄 <b>Type changed:</b> {_esc(new_type)}")
-        reward = data.get("newReward") or data.get("reward")
-        bounty = _bounty_line(reward, data.get("reward_old"))
-        if bounty:
-            lines.append("")
-            lines.append(bounty.rstrip())
-        if data.get("newScope"):
-            lines.append("")
-            lines.append(f"➕ <b>Scope added</b> ({len(data['newScope'])})")
-            lines.extend(_scope_list(data["newScope"]))
-        if data.get("newInScope"):
-            lines.append("")
-            lines.append(f"➕ <b>In scope added</b> ({len(data['newInScope'])})")
-            lines.extend(_scope_list(data["newInScope"]))
-        if data.get("removedScope"):
-            lines.append("")
-            lines.append(f"➖ <b>Scope removed</b> ({len(data['removedScope'])})")
-            lines.extend(_scope_list(data["removedScope"]))
-        if data.get("removeInScope"):
-            lines.append("")
-            lines.append(f"➖ <b>In scope removed</b> ({len(data['removeInScope'])})")
-            lines.extend(_scope_list(data["removeInScope"]))
-        if data.get("newOutOfScope"):
-            lines.append("")
-            lines.append(f"🚫 <b>Out of scope added</b> ({len(data['newOutOfScope'])})")
-            lines.extend(_scope_list(data["newOutOfScope"]))
-        if data.get("removeOutOfScope"):
-            lines.append("")
-            lines.append(f"✅ <b>Out of scope removed</b> ({len(data['removeOutOfScope'])})")
-            lines.extend(_scope_list(data["removeOutOfScope"]))
-        for scope in data.get("changedScope", []):
-            lines.append("")
-            lines.append("<b>✏️ Scope changed</b>")
-            for line in scope["old"].splitlines():
-                if line.strip():
-                    lines.append(f"<code>- {_esc(line)}</code>")
-            for line in scope["new"].splitlines():
-                if line.strip():
-                    lines.append(f"<code>+ {_esc(line)}</code>")
+        if data["isNewProgram"]:
+            # brand new: show its bounty and full scope as facts, no diff
+            reward = data.get("newReward") or data.get("reward")
+            bounty = _bounty_line(reward)
+            if bounty:
+                lines.append("")
+                lines.append(bounty)
+            for key, label in (("newScope", "🌐 Scope"),
+                               ("newInScope", "🌐 Scope")):
+                items = data.get(key)
+                if items:
+                    lines.append("")
+                    lines.append(f"{label} ({len(items)})")
+                    lines.extend(_scope_list(items))
+                    break
+        else:
+            changed = _what_changed_lines(data)
+            if changed:
+                lines.append("")
+                lines.append("━━━ 🔄 <b>WHAT CHANGED</b> ━━━")
+                lines.extend(changed)
+            for key, label in (("newScope", "➕ Scope added"),
+                               ("newInScope", "➕ In scope added"),
+                               ("removedScope", "➖ Scope removed"),
+                               ("removeInScope", "➖ In scope removed"),
+                               ("newOutOfScope", "🚫 Out of scope added"),
+                               ("removeOutOfScope", "✅ Out of scope removed")):
+                items = data.get(key)
+                if items:
+                    lines.append("")
+                    lines.append(f"{label} ({len(items)})")
+                    lines.extend(_scope_list(items))
+            for scope in data.get("changedScope", []):
+                lines.append("")
+                lines.append("<b>✏️ Scope changed</b>")
+                for line in scope["old"].splitlines():
+                    if line.strip():
+                        lines.append(f"<code>- {_esc(line)}</code>")
+                for line in scope["new"].splitlines():
+                    if line.strip():
+                        lines.append(f"<code>+ {_esc(line)}</code>")
 
     if data.get("note"):
         lines.append("")
