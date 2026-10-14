@@ -40,16 +40,33 @@ _PAGE_SIZE = 24
 
 
 def _fetch_directory():
-    programs, page = [], 1
+    """(programs, complete). complete=False when pages failed or the
+    fetched count falls short of paginationMeta.totalCount — callers must
+    then DEFER removal processing (a partial scan looks like removals)."""
+    programs, page, failed = [], 1, 0
+    total = None
     while True:
-        data = api_get(f"{BC_BASE}/engagements.json", params={"page": page})
+        try:
+            data = api_get(f"{BC_BASE}/engagements.json",
+                           params={"page": page})
+        except Exception:
+            failed += 1
+            if failed > 2:
+                break
+            time.sleep(3)
+            continue
         items = data.get("engagements") or []
         programs.extend(items)
         total = (data.get("paginationMeta") or {}).get("totalCount") or 0
         if page * _PAGE_SIZE >= total or not items:
-            return programs
+            break
         page += 1
         time.sleep(_PAGE_DELAY_S)
+    complete = failed == 0 and (total is None or len(programs) >= total - 5)
+    if not complete:
+        print(f"[bugcrowd] WARNING: partial directory scan "
+              f"({len(programs)}/{total}) — removals deferred")
+    return programs, complete
 
 
 def _scopes_from_groups(groups):
@@ -115,13 +132,14 @@ def _notify(db, config, first_time, data, watcher, is_update, mUrl):
 # checking bugcrowd
 def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
     try:
-        live = _fetch_directory()
+        live, scan_complete = _fetch_directory()
     except Exception as exc:
         print(f"[bugcrowd] live fetch failed: {exc}")
         alert_fetch_error(db, "bugcrowd", exc)
         return
     live = [p for p in live if not p.get("isDemo") and not p.get("isBanned")]
-    print(f"[bugcrowd] live API: {len(live)} engagements")
+    print(f"[bugcrowd] live API: {len(live)} engagements "
+          f"(complete={scan_complete})")
     reseed = needs_reseed(db, "bugcrowd")
     json_programs_key = []
 
@@ -226,14 +244,31 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
         if reseed:
             db["bugcrowd"].delete_many({"programKey": program_key})
             continue
-        data = _base_message(program["programName"],
-                             program.get("programType") or "",
-                             program.get("programURL") or "", "",
-                             {"isRemoved": True})
-        data["color"] = 14584064
-        if config["notifications"]["removed_program"] and not first_time:
-            discord_notifier.send_notification(data, mUrl)
-        db["bugcrowd"].delete_many({"programKey": program_key})
+        # confirm before announcing: a partial/flaky directory scan makes
+        # live programs vanish for one cycle (the Pexels flake)
+        still_there = False
+        program_url = program.get("programURL") or ""
+        if program_url.startswith(BC_BASE):
+            try:
+                cl = api_get(f"{BC_BASE}{program_url[len(BC_BASE):]}"
+                             f"/changelog.json")
+                still_there = "changelogs" in cl
+            except Exception:
+                still_there = False
+        if scan_complete and not still_there:
+            data = _base_message(program["programName"],
+                                 program.get("programType") or "",
+                                 program_url, "",
+                                 {"isRemoved": True})
+            data["color"] = 14584064
+            if config["notifications"]["removed_program"] and not first_time:
+                discord_notifier.send_notification(data, mUrl)
+            db["bugcrowd"].delete_many({"programKey": program_key})
+        else:
+            reason = "directory scan was partial" if not scan_complete \
+                else "program still answers (directory flake)"
+            print(f"[bugcrowd] removal of {program.get('programName')} "
+                  f"deferred — {reason}")
 
     if reseed:
         finish_reseed(db, "bugcrowd", len(live))
@@ -254,6 +289,14 @@ def check_bugcrowd(tmp_dir, mUrl, first_time, db, config):
                 mark_checked(db, "bugcrowd", program_key)
                 continue
             if doc.get("lastChangelogAt") == published_at:
+                mark_checked(db, "bugcrowd", program_key)
+                continue
+            if doc.get("lastChangelogAt") is None:
+                # never baselined (reseed revision fetch failed) — record
+                # silently instead of reporting a months-old revision
+                new_doc = dict(doc, lastChangelogAt=published_at,
+                               lastCheckedAt=datetime.datetime.utcnow())
+                save_data(db, "bugcrowd", program_key, new_doc)
                 mark_checked(db, "bugcrowd", program_key)
                 continue
             in_scope, out_scope, status_label, brief, rranges =                 _revision_scope(show_url)

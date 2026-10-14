@@ -99,7 +99,7 @@ def bc_scenario():
                                 "brief-v1"),
         "/engagements/prog-b": (None, None, [], [], "", ""),
     }
-    bc._fetch_directory = lambda: list(dir_items)
+    bc._fetch_directory = lambda: (list(dir_items), True)
     bc._latest_revision = lambda brief: revisions[brief][:2] + ("brief",)
 
     def rev_scope(show_url):
@@ -159,12 +159,72 @@ def bc_scenario():
           and a.get("desc_changed") is True and a["newInScope"] == [])
     REC.reset()
 
-    # removed
+    # removed: changelog probe confirms the program is really gone
+    orig_api_get = bc.api_get
+    bc.api_get = lambda url, retries=2, headers=None, timeout=30, params=None:         {"errors": [{"detail": "Not found"}]}  # changelog 404 = really gone
+    bc._latest_revision = lambda brief: (None, None, "")
     dir_items.pop(1)
     bc.pick_stale = lambda db, p, k: []
     bc.check_bugcrowd("./tmp/", "hook", False, db, CONFIG)
     b = by_name("Prog B")
-    check("BC removed alerted", b is not None and b["isRemoved"])
+    check("BC confirmed removal alerted", b is not None and b["isRemoved"])
+    bc.api_get = orig_api_get
+    REC.reset()
+
+    # flake: directory lost the program but its changelog still answers
+    # -> removal deferred, doc kept
+    db2 = fresh_db()
+    dir_items2 = [dict(dir_items[0])]
+    bc._fetch_directory = lambda: (list(dir_items2), True)
+    revisions2 = {"/engagements/prog-a": ("2026-10-06T19:56:36.194Z",
+                                          "/engagements/prog-a/cl-1",
+                                          ["a.com"], [], "In progress",
+                                          "b")}
+    bc._latest_revision = lambda brief: revisions2[brief][:2] + ("brief",)
+    bc._revision_scope = lambda show: (["a.com"], [], "In progress", "b", [])
+    # seed: two programs, live scan only returns one
+    db2["bugcrowd"].insert_many([
+        {"programKey": "key-b", "programName": "Ghost B",
+         "programURL": "https://bugcrowd.com/engagements/ghost-b",
+         "programType": "rdp", "inScope": [], "outOfScope": [],
+         "reward": {}, "statusLabel": "", "briefText": "b",
+         "rewardRanges": [], "lastChangelogAt": "2026-10-01T00:00:00.000Z"},
+    ])
+    _saved = bc.api_get
+    bc.api_get = lambda url, retries=2, headers=None, timeout=30, params=None:         {"changelogs": [{"id": "x"}]}  # still answers = directory flake
+    db2["_meta"].insert_one({"programKey": "bugcrowd_live_resynced",
+                             "programs": 2})  # not a reseed
+    bc.check_bugcrowd("./tmp/", "hook", False, db2, CONFIG)
+    bc.api_get = _saved
+    check("BC flake removal deferred (no alert)",
+          by_name("Ghost B") is None)
+    check("BC flake doc kept", db2["bugcrowd"].count_documents({}) == 2)
+    REC.reset()
+
+    # None-baseline sweep: silent re-baseline, no months-old alert
+    db3 = fresh_db()
+    dir_items3 = [{"name": "Old Prog", "briefUrl": "/engagements/old-p",
+                   "logoUrl": "l",
+                   "rewardSummary": {"minReward": "$1", "maxReward": "$2"},
+                   "accessStatus": "open", "isDemo": False,
+                   "isBanned": False}]
+    bc._fetch_directory = lambda: (list(dir_items3), True)
+    bc._latest_revision = lambda brief: ("2026-05-27T11:26:00.000Z",
+                                         "/engagements/old-p/cl-x", "brief")
+    bc._revision_scope = lambda show: (["z.com"], [], "In progress", "b", [])
+    db3["bugcrowd"].insert_one({
+        "programKey": bc.generate_program_key(
+            "Old Prog", "https://bugcrowd.com/engagements/old-p"),
+        "programName": "Old Prog",
+        "programURL": "https://bugcrowd.com/engagements/old-p",
+        "programType": "rdp", "inScope": ["z.com"], "outOfScope": [],
+        "reward": {"min": "$1", "max": "$2"}, "statusLabel": "In progress",
+        "briefText": "b", "rewardRanges": [], "lastChangelogAt": None})
+    bc.check_bugcrowd("./tmp/", "hook", False, db3, CONFIG)
+    check("BC None-baseline stays silent", len(REC.sent) == 0)
+    doc = db3["bugcrowd"].find_one({"programName": "Old Prog"})
+    check("BC None-baseline stored silently",
+          doc["lastChangelogAt"] == "2026-05-27T11:26:00.000Z")
     REC.reset()
 
 
