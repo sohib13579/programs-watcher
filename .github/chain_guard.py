@@ -14,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 import yaml
 from pymongo import MongoClient
 
-MAX_CHAIN_SILENCE_MIN = 20  # a live chain checks every ~15 min
-TAKEOVER_AT_MIN = 23        # must exceed MAX + guard startup lag
+MAX_CHAIN_SILENCE_MIN = 10  # a live chain checks every ~5 min
+TAKEOVER_AT_MIN = 15        # must exceed a long check (reseed) gap
 MAX_WAIT_MIN = 30
 
 

@@ -1,0 +1,54 @@
+# Listener keeper: closes the guard-gap after chain restarts.
+# Every 5 min: if the listener heartbeat is stale (chain restarting, or a
+# guard gap), run the listener in the foreground for ~4 min so /start and
+# /status never sit unanswered for long. When the chain's own listener is
+# alive (fresh heartbeat) this job exits in seconds.
+name: listener-keeper
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+jobs:
+  keep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - run: pip install -r requirements.txt
+      - name: Inject secrets
+        run: python .github/inject_secrets.py
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          INTIGRITI_TOKEN: ${{ secrets.INTIGRITI_TOKEN }}
+      - name: Run listener only if heartbeat is stale
+        run: |
+          FRESH=$(python - << 'PYEOF'
+          import yaml
+          from datetime import datetime
+          from pymongo import MongoClient
+          cfg = yaml.full_load(open("config.yml"))
+          c = MongoClient(cfg["mongoDB"]["uri"], serverSelectionTimeoutMS=15000)
+          hb = c[cfg["mongoDB"]["database"]]["_meta"].find_one(
+              {"programKey": "tg_listener_alive"})
+          c.close()
+          if hb and (datetime.utcnow()
+                     - hb["at"].replace(tzinfo=None)).total_seconds() < 330:
+              print("1")
+          else:
+              print("0")
+          PYEOF
+          )
+          if [ "$FRESH" = "1" ]; then
+            echo "listener alive (fresh heartbeat) — nothing to do"
+            exit 0
+          fi
+          echo "listener down — keeper runs it for 4 min"
+          timeout 240 python .github/bot_listener.py || true
+          echo "keeper shift over"
